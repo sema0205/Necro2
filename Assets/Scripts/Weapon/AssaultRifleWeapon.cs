@@ -13,10 +13,11 @@ public class AssaultRifleWeapon : WeaponBase
     protected override void TryFire()
     {
         Ray ray = GetRayWithSpread();
-        RaycastHit hit;
-        if (Physics.Raycast(ray, out hit, maxRange, enemyLayers))
+        // Empty mask in the inspector would catch nothing — fall back to "everything except Ignore Raycast".
+        int mask = enemyLayers.value == 0 ? Physics.DefaultRaycastLayers : enemyLayers.value;
+        if (RaycastSkippingSelf(ray, maxRange, mask, out RaycastHit hit))
         {
-            EnemyBase enemy = hit.collider.GetComponent<EnemyBase>();
+            EnemyBase enemy = hit.collider.GetComponentInParent<EnemyBase>();
             if (enemy != null)
             {
                 float damage = data.baseDamage;
@@ -30,13 +31,13 @@ public class AssaultRifleWeapon : WeaponBase
 
                 enemy.TakeDamage(damage);
 
-                Debug.Log($"[Gun] Attack! Damage: {damage}");
+                Debug.Log($"[AssaultRifle] hit {enemy.name} for {damage}");
+            }
 
-                if (hitEffectPrefab != null)
-                {
-                    var fx = Instantiate(hitEffectPrefab, hit.point, Quaternion.LookRotation(hit.normal));
-                    Destroy(fx, 1f);
-                }
+            if (hitEffectPrefab != null)
+            {
+                var fx = Instantiate(hitEffectPrefab, hit.point, Quaternion.LookRotation(hit.normal));
+                Destroy(fx, 1f);
             }
         }
 
@@ -65,6 +66,35 @@ public class AssaultRifleWeapon : WeaponBase
     {
         // Винтовка пока не имеет навыка — можно оставить пустым или добавить burst/zoom
         Debug.Log("[AssaultRifle] Skill not implemented");
+    }
+
+    private static readonly RaycastHit[] HitBuffer = new RaycastHit[16];
+
+    /// Hitscan that ignores any collider rooted on a GameObject tagged "Player",
+    /// so the camera-origin ray doesn't terminate inside the player capsule.
+    private static bool RaycastSkippingSelf(Ray ray, float range, int mask, out RaycastHit firstValidHit)
+    {
+        int count = Physics.RaycastNonAlloc(ray, HitBuffer, range, mask, QueryTriggerInteraction.Ignore);
+        if (count == 0) { firstValidHit = default; return false; }
+
+        System.Array.Sort(HitBuffer, 0, count, RaycastComparer.Instance);
+
+        for (int i = 0; i < count; i++)
+        {
+            var col = HitBuffer[i].collider;
+            if (col == null) continue;
+            if (col.transform.root.CompareTag("Player")) continue;
+            firstValidHit = HitBuffer[i];
+            return true;
+        }
+        firstValidHit = default;
+        return false;
+    }
+
+    private class RaycastComparer : System.Collections.Generic.IComparer<RaycastHit>
+    {
+        public static readonly RaycastComparer Instance = new();
+        public int Compare(RaycastHit a, RaycastHit b) => a.distance.CompareTo(b.distance);
     }
 
     /// <summary>

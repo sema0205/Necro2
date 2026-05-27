@@ -35,19 +35,33 @@ public class SwordWeapon : WeaponBase
 
     private void PerformAttack(float damage)
     {
-        if (attackPoint == null)
+        // Fall back to camera forward → 1.5m so the sword still hits even if attackPoint was never wired up.
+        Vector3 origin;
+        if (attackPoint != null)
         {
-            Debug.LogError("[Sword] Attack point not assigned!", this);
-            return;
+            origin = attackPoint.position;
+        }
+        else
+        {
+            var cam = Camera.main;
+            var holder = playerMotor != null ? playerMotor.transform : transform;
+            origin = (cam != null ? cam.transform.position : holder.position)
+                   + (cam != null ? cam.transform.forward : holder.forward) * 1.2f;
         }
 
-        Collider[] hits = Physics.OverlapSphere(attackPoint.position, attackRange, enemyLayers);
+        int mask = enemyLayers.value == 0 ? ~0 : enemyLayers.value;
+        Collider[] hits = Physics.OverlapSphere(origin, attackRange, mask, QueryTriggerInteraction.Ignore);
         var enemiesHit = new HashSet<EnemyBase>();
 
         foreach (var hit in hits)
         {
-            if (hit.TryGetComponent<EnemyBase>(out var enemy) && enemiesHit.Add(enemy))
+            if (hit.transform.root.CompareTag("Player")) continue;
+            var enemy = hit.GetComponentInParent<EnemyBase>();
+            if (enemy != null && enemiesHit.Add(enemy))
+            {
                 enemy.TakeDamage(damage);
+                Debug.Log($"[Sword] hit {enemy.name} for {damage}");
+            }
         }
 
         if (enemiesHit.Count > 0)
